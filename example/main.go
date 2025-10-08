@@ -49,6 +49,10 @@ func handleAvatar(w http.ResponseWriter, r *http.Request) {
 	if t := strings.TrimSpace(q.Get("theme")); t != "" {
 		opts = append(opts, multiavatar.WithTheme(t))
 	}
+	// Gender preset: male/female/unisex
+	if g := strings.TrimSpace(q.Get("gender")); g != "" {
+		opts = append(opts, multiavatar.WithGender(g))
+	}
 
 	// Per-part theme: eyes:C,top:A
 	for part, val := range parseKVComma(q.Get("partTheme")) {
@@ -237,6 +241,13 @@ const htmlIndex = `<!doctype html>
           <option value="B">B</option>
           <option value="C">C</option>
         </select>
+        <label>gender</label>
+        <select id="gender">
+          <option value="">默认（不限定）</option>
+          <option value="female">female（女性）</option>
+          <option value="male">male（男性）</option>
+          <option value="unisex">unisex（中性）</option>
+        </select>
         <label class="row"><span><input type="checkbox" id="transparent" /> 透明背景</span></label>
       </fieldset>
 
@@ -299,6 +310,8 @@ const htmlIndex = `<!doctype html>
 
       const theme = document.getElementById('theme').value.trim();
       if (theme) params.set('theme', theme);
+      const gender = document.getElementById('gender').value.trim();
+      if (gender) params.set('gender', gender);
 
       const transparent = document.getElementById('transparent').checked;
       if (transparent) params.set('transparent', 'true');

@@ -198,6 +198,51 @@ func WithAllowedHeadVersions(versions ...string) Option { return WithAllowedVers
 func WithAllowedEyesVersions(versions ...string) Option { return WithAllowedVersions("eyes", versions) }
 func WithAllowedTopVersions(versions ...string) Option  { return WithAllowedVersions("top", versions) }
 
+// WithGender applies preset style filters for male/female/unisex.
+// It restricts allowed versions/themes for certain parts to achieve gendered styling
+// while keeping deterministic selection within those sets.
+func WithGender(gender string) Option {
+	return func(c *config) {
+		g := strings.ToLower(strings.TrimSpace(gender))
+
+		// ensure maps
+		if c.allowedVersions == nil {
+			c.allowedVersions = make(map[string][]string)
+		}
+		if c.allowedThemes == nil {
+			c.allowedThemes = make(map[string][]string)
+		}
+		if c.partTheme == nil {
+			c.partTheme = make(map[string]string)
+		}
+
+		switch g {
+		case "female", "woman", "girl", "f", "♀":
+			// Presets偏向女性风格
+			c.allowedVersions["top"] = []string{"01", "03", "07", "10"}
+			c.allowedVersions["eyes"] = []string{"03", "11"}
+			c.allowedThemes["top"] = []string{"A", "C"}
+			// 加强女性风格的主题倾向
+			c.partTheme["top"] = "C"
+			c.partTheme["eyes"] = "C"
+		case "male", "man", "boy", "m", "♂":
+			// Presets偏向男性风格
+			c.allowedVersions["top"] = []string{"04", "05", "14"}
+			c.allowedVersions["eyes"] = []string{"09", "10"}
+			c.allowedThemes["top"] = []string{"A", "B"}
+			// 加强男性风格的主题倾向
+			c.partTheme["top"] = "B"
+			c.partTheme["eyes"] = "B"
+		default:
+			// Unisex更广的集合
+			c.allowedVersions["top"] = []string{"01", "03", "04", "05", "07", "10", "14"}
+			c.allowedVersions["eyes"] = []string{"03", "09", "10", "11"}
+			c.allowedThemes["top"] = []string{"A", "B", "C"}
+			// 中性不强制具体主题，让 allowedThemes 生效
+		}
+	}
+}
+
 // WithoutBackground is an option to generate an avatar with a transparent background.
 func WithoutBackground() Option {
 	return func(c *config) {
