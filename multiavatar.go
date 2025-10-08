@@ -13,10 +13,190 @@ import (
 // config holds the configuration for generating an avatar.
 type config struct {
 	withoutBackground bool
+	// selectedTheme forces theme letter ("A","B","C") for all parts if set
+	selectedTheme *string
+	// forcePartV allows overriding the part version (e.g., "eyes":"07")
+	forcePartV map[string]string
+	// allowedVersions restricts each part to a set of allowed versions; selection is deterministic within the set
+	allowedVersions map[string][]string
+	// per-part theme override: e.g., {"eyes":"B"}
+	partTheme map[string]string
+	// allowed theme letters per part: e.g., {"top": {"A","C"}}
+	allowedThemes map[string][]string
+	// disable specific parts: {"top": true} to skip rendering that part
+	disabledParts map[string]bool
+	// overrideColors allows overriding the colors array for a specific part
+	// e.g., {"head": {"#f2c280"}} to force skin tone
+	overrideColors map[string][]string
 }
 
 // Option is a function that configures a generation option.
 type Option func(*config)
+
+// WithTheme forces the theme letter ("A","B","C") globally.
+func WithTheme(theme string) Option {
+	return func(c *config) {
+		t := strings.ToUpper(strings.TrimSpace(theme))
+		if t == "A" || t == "B" || t == "C" {
+			c.selectedTheme = &t
+		}
+	}
+}
+
+// WithPartVersion forces a specific part to use a given version "00".."15".
+func WithPartVersion(partName, partVersion string) Option {
+	return func(c *config) {
+		if c.forcePartV == nil {
+			c.forcePartV = make(map[string]string)
+		}
+		pn := strings.TrimSpace(partName)
+		pv := strings.TrimSpace(partVersion)
+		// basic validation: partName must be one of known parts and version must be 2-digit
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			if len(pv) == 2 {
+				c.forcePartV[pn] = pv
+			}
+		}
+	}
+}
+
+// WithPartColors overrides the colors array used for a specific part.
+// For example, WithPartColors("head", []string{"#f2c280"}) to set skin tone.
+func WithPartColors(partName string, colors []string) Option {
+	return func(c *config) {
+		if c.overrideColors == nil {
+			c.overrideColors = make(map[string][]string)
+		}
+		pn := strings.TrimSpace(partName)
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			// store a copy to avoid external mutation
+			cp := make([]string, len(colors))
+			for i := range colors {
+				cp[i] = strings.TrimSpace(colors[i])
+			}
+			c.overrideColors[pn] = cp
+		}
+	}
+}
+
+// Convenience options for common cases
+
+// WithSkinColor sets the head (skin) primary color.
+func WithSkinColor(hex string) Option {
+	return WithPartColors("head", []string{strings.TrimSpace(hex)})
+}
+
+// WithEyesColors sets the eyes colors array (primary, secondary, etc.).
+func WithEyesColors(colors ...string) Option {
+	return WithPartColors("eyes", colors)
+}
+
+// WithTopColors sets the hair/top colors array.
+func WithTopColors(colors ...string) Option {
+	return WithPartColors("top", colors)
+}
+
+// WithEnvColor sets the environment/background circle color.
+func WithEnvColor(hex string) Option {
+	return WithPartColors("env", []string{strings.TrimSpace(hex)})
+}
+
+// WithClothesColors sets clothes colors array.
+func WithClothesColors(colors ...string) Option {
+	return WithPartColors("clo", colors)
+}
+
+// WithMouthColors sets mouth colors array.
+func WithMouthColors(colors ...string) Option {
+	return WithPartColors("mouth", colors)
+}
+
+// WithPartTheme forces theme letter ("A","B","C") for a specific part.
+func WithPartTheme(partName, theme string) Option {
+	return func(c *config) {
+		if c.partTheme == nil {
+			c.partTheme = make(map[string]string)
+		}
+		pn := strings.TrimSpace(partName)
+		t := strings.ToUpper(strings.TrimSpace(theme))
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			if t == "A" || t == "B" || t == "C" {
+				c.partTheme[pn] = t
+			}
+		}
+	}
+}
+
+// WithAllowedThemes restricts a part to given theme letters (e.g., ["A","C"]).
+// Deterministic selection within the list based on the input hash slice.
+func WithAllowedThemes(partName string, themesList []string) Option {
+	return func(c *config) {
+		if c.allowedThemes == nil {
+			c.allowedThemes = make(map[string][]string)
+		}
+		pn := strings.TrimSpace(partName)
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			var tl []string
+			for _, t := range themesList {
+				tu := strings.ToUpper(strings.TrimSpace(t))
+				if tu == "A" || tu == "B" || tu == "C" {
+					tl = append(tl, tu)
+				}
+			}
+			if len(tl) > 0 {
+				c.allowedThemes[pn] = tl
+			}
+		}
+	}
+}
+
+// WithoutPart disables rendering a specific part (e.g., "top" to remove hair).
+func WithoutPart(partName string) Option {
+	return func(c *config) {
+		if c.disabledParts == nil {
+			c.disabledParts = make(map[string]bool)
+		}
+		pn := strings.TrimSpace(partName)
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			c.disabledParts[pn] = true
+		}
+	}
+}
+
+// WithAllowedVersions restricts a part to given version list (e.g., ["01","03","07"]).
+// The algorithm will pick deterministically within the list based on the input hash.
+func WithAllowedVersions(partName string, versions []string) Option {
+	return func(c *config) {
+		if c.allowedVersions == nil {
+			c.allowedVersions = make(map[string][]string)
+		}
+		pn := strings.TrimSpace(partName)
+		switch pn {
+		case "env", "clo", "head", "mouth", "eyes", "top":
+			// sanitize to 2-digit codes
+			var vlist []string
+			for _, v := range versions {
+				v = strings.TrimSpace(v)
+				if len(v) == 2 {
+					vlist = append(vlist, v)
+				}
+			}
+			if len(vlist) > 0 {
+				c.allowedVersions[pn] = vlist
+			}
+		}
+	}
+}
+
+// Convenience: restrict common parts
+func WithAllowedHeadVersions(versions ...string) Option { return WithAllowedVersions("head", versions) }
+func WithAllowedEyesVersions(versions ...string) Option { return WithAllowedVersions("eyes", versions) }
+func WithAllowedTopVersions(versions ...string) Option  { return WithAllowedVersions("top", versions) }
 
 // WithoutBackground is an option to generate an avatar with a transparent background.
 func WithoutBackground() Option {
@@ -31,6 +211,26 @@ func Generate(input string, opts ...Option) string {
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	// ensure internal maps are initialized
+	if cfg.forcePartV == nil {
+		cfg.forcePartV = make(map[string]string)
+	}
+	if cfg.allowedVersions == nil {
+		cfg.allowedVersions = make(map[string][]string)
+	}
+	if cfg.partTheme == nil {
+		cfg.partTheme = make(map[string]string)
+	}
+	if cfg.allowedThemes == nil {
+		cfg.allowedThemes = make(map[string][]string)
+	}
+	if cfg.disabledParts == nil {
+		cfg.disabledParts = make(map[string]bool)
+	}
+	if cfg.overrideColors == nil {
+		cfg.overrideColors = make(map[string][]string)
 	}
 
 	if input == "" {
@@ -76,33 +276,68 @@ func Generate(input string, opts ...Option) string {
 			theme = "A"
 		}
 
-		// 4d. Get the final SVG part with colors
-		selectedParts[name] = getFinalPart(name, partV, theme)
+		// Apply forced/global/per-part theme/version if configured
+		if cfg.selectedTheme != nil {
+			theme = *cfg.selectedTheme
+		}
+		if pt, ok := cfg.partTheme[name]; ok {
+			theme = pt
+		} else if allowedT, ok := cfg.allowedThemes[name]; ok && len(allowedT) > 0 {
+			theme = allowedT[val%len(allowedT)]
+		}
+
+		if forced, ok := cfg.forcePartV[name]; ok && len(forced) == 2 {
+			partV = forced
+		} else if allowed, ok := cfg.allowedVersions[name]; ok && len(allowed) > 0 {
+			partV = allowed[val%len(allowed)]
+		}
+
+		// 4d. Get the final SVG part with colors, allowing overrides
+		selectedParts[name] = getFinalPartWithOverride(name, partV, theme, cfg.overrideColors[name])
 	}
 
 	// 5. Assemble the final SVG
 	var finalSVG strings.Builder
 	finalSVG.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 231 231">`)
 
-	if !cfg.withoutBackground {
+	if !cfg.withoutBackground && !cfg.disabledParts["env"] {
 		finalSVG.WriteString(selectedParts["env"])
 	}
-	finalSVG.WriteString(selectedParts["head"])
-	finalSVG.WriteString(selectedParts["clo"])
-	finalSVG.WriteString(selectedParts["top"])
-	finalSVG.WriteString(selectedParts["eyes"])
-	finalSVG.WriteString(selectedParts["mouth"])
+	if !cfg.disabledParts["head"] {
+		finalSVG.WriteString(selectedParts["head"])
+	}
+	if !cfg.disabledParts["clo"] {
+		finalSVG.WriteString(selectedParts["clo"])
+	}
+	if !cfg.disabledParts["top"] {
+		finalSVG.WriteString(selectedParts["top"])
+	}
+	if !cfg.disabledParts["eyes"] {
+		finalSVG.WriteString(selectedParts["eyes"])
+	}
+	if !cfg.disabledParts["mouth"] {
+		finalSVG.WriteString(selectedParts["mouth"])
+	}
 
 	finalSVG.WriteString(`</svg>`)
 
 	return finalSVG.String()
 }
 
-// getFinalPart retrieves the raw SVG string for a part, and replaces color placeholders.
-func getFinalPart(partName, partV, theme string) string {
+// getFinalPartWithOverride retrieves the raw SVG string for a part,
+// and replaces color placeholders, allowing optional color overrides.
+func getFinalPartWithOverride(partName, partV, theme string, override []string) string {
 	colors, ok := themes[partV][theme][partName]
 	if !ok {
 		return "" // Should not happen with correct logic
+	}
+
+	// If override provided, use it (truncate/extend matching placeholders count on use)
+	if override != nil && len(override) > 0 {
+		// copy to avoid mutating themes
+		cp := make([]string, len(override))
+		copy(cp, override)
+		colors = cp
 	}
 
 	partID, _ := strconv.Atoi(partV)
